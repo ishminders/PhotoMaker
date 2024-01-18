@@ -15,7 +15,7 @@ os.environ["HF_HUB_CACHE"] = "models"
 os.environ["HF_HUB_CACHE_OFFLINE"] = "true"
 
 from diffusers.utils import load_image
-from diffusers import EulerDiscreteScheduler
+from diffusers import EulerAncestralDiscreteScheduler
 from diffusers.pipelines.stable_diffusion.safety_checker import (
     StableDiffusionSafetyChecker,
 )
@@ -29,14 +29,17 @@ from gradio_demo.style_template import styles
 
 MAX_SEED = np.iinfo(np.int32).max
 STYLE_NAMES = list(styles.keys())
-DEFAULT_STYLE_NAME = "Photographic (Default)"
+DEFAULT_STYLE_NAME = "(No style)"
 
 FEATURE_EXTRACTOR = "./feature-extractor"
 SAFETY_CACHE = "./models/safety-cache"
 SAFETY_URL = "https://weights.replicate.delivery/default/sdxl/safety-1.0.tar"
 
-BASE_MODEL_URL = "https://weights.replicate.delivery/default/SG161222--RealVisXL_V3.0-11ee564ebf4bd96d90ed5d473cb8e7f2e6450bcf.tar"
-BASE_MODEL_PATH = "models/SG161222/RealVisXL_V3.0"
+BASE_MODEL_URL = "https://weights.replicate.delivery/default/civitai/sdxlUnstableDiffusers_v11.safetensors"
+BASE_MODEL_PATH = "models/sdxlUnstableDiffusers_v11.safetensors"
+
+LORA_URL = "https://weights.replicate.delivery/default/civitai/xl_more_art-full_v1.safetensors"
+LORA_PATH = "models/xl_more_art-full_v1.safetensors"
 
 PHOTOMAKER_URL = "https://weights.replicate.delivery/default/TencentARC--PhotoMaker/photomaker-v1.bin"
 PHOTOMAKER_PATH = "models/photomaker-v1.bin"
@@ -69,7 +72,10 @@ class Predictor(BasePredictor):
             download_weights(PHOTOMAKER_URL, PHOTOMAKER_PATH, extract=False)
 
         if not os.path.exists(BASE_MODEL_PATH):
-            download_weights(BASE_MODEL_URL, BASE_MODEL_PATH)
+            download_weights(BASE_MODEL_URL, BASE_MODEL_PATH, extract=False)
+
+        if not os.path.exists(LORA_PATH):
+            download_weights(LORA_URL, LORA_PATH, extract=False)
 
         print("Loading safety checker...")
         if not os.path.exists(SAFETY_CACHE):
@@ -79,11 +85,10 @@ class Predictor(BasePredictor):
         ).to("cuda")
         self.feature_extractor = CLIPImageProcessor.from_pretrained(FEATURE_EXTRACTOR)
 
-        self.pipe = PhotoMakerStableDiffusionXLPipeline.from_pretrained(
+        self.pipe = PhotoMakerStableDiffusionXLPipeline.from_single_file(
             BASE_MODEL_PATH,
             torch_dtype=torch.bfloat16,
-            use_safetensors=True,
-            variant="fp16",
+            original_config_file=None,
         ).to(self.device)
 
         self.pipe.load_photomaker_adapter(
@@ -94,9 +99,11 @@ class Predictor(BasePredictor):
         )
         self.pipe.id_encoder.to(self.device)
 
-        self.pipe.scheduler = EulerDiscreteScheduler.from_config(
+        self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
             self.pipe.scheduler.config
         )
+        self.pipe.load_lora_weights(os.path.dirname(LORA_PATH), weight_name=os.path.basename(LORA_PATH), adapter_name="xl_more_art-full")
+        self.pipe.set_adapters(["photomaker", "xl_more_art-full"], adapter_weights=[1.0, 0.5])
         self.pipe.fuse_lora()
 
     @torch.inference_mode()
