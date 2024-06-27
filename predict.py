@@ -13,6 +13,7 @@ import time
 
 os.environ["HF_HUB_CACHE"] = "models"
 os.environ["HF_HUB_CACHE_OFFLINE"] = "true"
+os.system("socat TCP6-LISTEN:8888,fork TCP4:127.0.0.1:5000 &")
 
 from diffusers.utils import load_image
 from diffusers import EulerDiscreteScheduler
